@@ -37,6 +37,7 @@ This plugin adds a small control panel with convenient buttons:
 
 * napari
 * numpy
+* scipy
 
 ## Installation
 
