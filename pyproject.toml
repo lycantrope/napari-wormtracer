@@ -1,0 +1,43 @@
+[project]
+name = "napari-wormtracer"
+version = "0.1.0"
+description = "A napari plugin to manually modify the centerline"
+readme = "README.md"
+authors = [ { name = "Chung-Kuan CHEN", email = "b97b01045@gmail.com" } ]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+]
+classifiers = [ "Framework :: napari"]
+license = "MIT"
+license-files = [
+    "LICENSE",
+]
+
+[project.urls]
+homepage = "https://github.com/lycantrope/napari-wormtracer"
+source = "https://github.com/lycantrope/napari-wormtracer"
+issues = "https://github.com/lycantrope/napari-wormtracer/issues"
+
+[build-system]
+requires = [ "setuptools>=61" ]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*"=["*.yaml"]
+
+[dependency-groups]
+dev = [
+    "napari[pyqt6]>=0.5.6",
+]
+
+[project.entry-points."napari.manifest"]
+napari-wormtracer = "napari_wormtracer:napari.yaml"
+
