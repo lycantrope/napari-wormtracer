@@ -1,0 +1,10 @@
+name: napari-wormtracer
+display_name: WormTracer
+contributions:
+  commands:
+    - id: napari-wormtracer.WormTracerUI
+      title: WormTracer Editor
+      python_name: napari_wormtracer:WormTracerUI
+  widgets:
+    - command: napari-wormtracer.WormTracerUI
+      display_name: WormTracer GUI
