@@ -21,7 +21,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
 license = { file = "LICENSE" }
-dependencies = [ "numpy", "qtpy", "scipy" ]
+
+dependencies = [ "h5py", "numpy", "qtpy", "scipy" ]
 
 [project.urls]
 homepage = "https://github.com/lycantrope/napari-wormtracer"
