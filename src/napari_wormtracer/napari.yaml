@@ -1,5 +1,6 @@
 name: napari-wormtracer
-display_name: WormTracer
+display_name: WormTracerUI
+visibility: public
 contributions:
   commands:
     - id: napari-wormtracer.WormTracerUI

@@ -4,16 +4,24 @@ version = "0.1.0"
 description = "A napari plugin to manually modify the centerline"
 readme = "README.md"
 authors = [ { name = "Chung-Kuan CHEN", email = "b97b01045@gmail.com" } ]
-requires-python = ">=3.9"
-dependencies = [
-    "numpy",
-    "scipy",
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: napari",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Image Processing",
 ]
-classifiers = [ "Framework :: napari"]
-license = "MIT"
-license-files = [
-    "LICENSE",
-]
+license = { file = "LICENSE" }
+dependencies = [ "numpy", "qtpy", "scipy" ]
 
 [project.urls]
 homepage = "https://github.com/lycantrope/napari-wormtracer"
@@ -21,23 +29,84 @@ source = "https://github.com/lycantrope/napari-wormtracer"
 issues = "https://github.com/lycantrope/napari-wormtracer/issues"
 
 [build-system]
-requires = [ "setuptools>=61" ]
+requires = [ "setuptools>=61", "setuptools_scm" ]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [ "src" ]
 
 [tool.setuptools.package-data]
-"*"=["*.yaml"]
+"*" = [ "*.yaml" ]
+
+[project.optional-dependencies]
+# Allow easily installation with the full, default napari installation
+# (including Qt backend) using new-plugin-name[all].
+all = [ "napari[all]" ]
 
 [dependency-groups]
 dev = [
+    "copier>=9.10.3",
+    "jinja2-time>=0.2.0",
     "napari[pyqt6]>=0.5.6",
+    "npe2>=0.7.9",
+    "pytest>=8.4.2",
+    "pytest-copie>=0.3.1",
+    "ruff>=0.14.3",
+    "tox>=4.30.3",
 ]
 
 [project.entry-points."napari.manifest"]
 napari-wormtracer = "napari_wormtracer:napari.yaml"
 
+[tool.setuptools_scm]
+write_to = "src/napari_wormtracer/_version.py"
+fallback_version = "0.0.1+nogit"
+
+[tool.ruff]
+line-length = 79
+lint.select = [
+    "E",
+    "F",
+    "W",   #flake8
+    "UP",  # pyupgrade
+    "I",   # isort
+    "BLE", # flake8-blind-exception
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "ISC", # flake8-implicit-str-concat
+    "G",   # flake8-logging-format
+    "PIE", # flake8-pie
+    "SIM", # flake8-simplify
+]
+lint.ignore = [
+    "E501",  # line too long. let black handle this
+    "UP006",
+    "UP007", # type annotation. As using magicgui require runtime type annotation then we disable this.
+]
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*vendored*",
+    "*_vendor*",
+]
+fix = true
