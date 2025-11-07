@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 
 
 def get_barcode() -> str:
-    millisecond = int(datetime.now().timestamp() * 1000)
+    # Update barcode every 5 seconds.
+    millisecond = int(datetime.now().timestamp()) // 5 * 1000
     return hex(millisecond)[2:]
 
 
@@ -138,7 +139,7 @@ class WormTracerUI(QWidget):
         assert current_btn is not None, "output_type should be checked"
         output_type = current_btn.text()
         parent = x_src.parent
-        prefix = os.path.commonprefix([x_src.name, y_src.name])
+        prefix = os.path.commonprefix([x_src.stem, y_src.stem]).strip("_")
         suffix = get_barcode()
         if output_type == "csv":
             x_dst = parent.joinpath(f"{prefix}_x.{suffix}.csv")
@@ -147,6 +148,7 @@ class WormTracerUI(QWidget):
             np.savetxt(y_dst, y, delimiter=",")
             show_info("Modified centerline was saved.")
         else:
+            prefix = "_".join(prefix.split("_")[:-1])  # Drop last _xy tag
             dst = parent.joinpath(f"{prefix}_xy.{suffix}.h5")
             with h5py.File(dst, "w") as handler:
                 handler.create_dataset("x", data=x)
