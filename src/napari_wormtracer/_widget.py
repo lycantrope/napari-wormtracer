@@ -1,5 +1,7 @@
 import functools
+import os
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +23,11 @@ from scipy import interpolate
 
 if TYPE_CHECKING:
     import napari
+
+
+def get_barcode() -> str:
+    millisecond = int(datetime.now().timestamp() * 1000)
+    return hex(millisecond)[2:]
 
 
 class WormTracerUI(QWidget):
@@ -130,18 +137,17 @@ class WormTracerUI(QWidget):
         current_btn = self.group_buttons.checkedButton()
         assert current_btn is not None, "output_type should be checked"
         output_type = current_btn.text()
+        parent = x_src.parent
+        prefix = os.path.commonprefix([x_src.name, y_src.name])
+        suffix = get_barcode()
         if output_type == "csv":
-            x_dst = x_src.with_name(
-                x_src.stem.split("_x")[0] + "_x_modified.csv"
-            )
-            y_dst = y_src.with_name(
-                y_src.stem.split("_y")[0] + "_y_modified.csv"
-            )
+            x_dst = parent.joinpath(f"{prefix}_x.{suffix}.csv")
+            y_dst = parent.joinpath(f"{prefix}_y.{suffix}.csv")
             np.savetxt(x_dst, x, delimiter=",")
             np.savetxt(y_dst, y, delimiter=",")
             show_info("Modified centerline was saved.")
         else:
-            dst = x_src.with_name(x_src.stem.split("_x")[0] + "_modified.h5")
+            dst = parent.joinpath(f"{prefix}_xy.{suffix}.h5")
             with h5py.File(dst, "w") as handler:
                 handler.create_dataset("x", data=x)
                 handler.create_dataset("y", data=y)
@@ -159,10 +165,10 @@ class WormTracerUI(QWidget):
             y_name = name
         elif "_x" in name:
             x_name = name
-            y_name = name.replace("_x", "_y", count=1)
+            y_name = name.replace("_x", "_y")
         elif "_y" in name:
             y_name = name
-            x_name = name.replace("_y", "_x", count=1)
+            x_name = name.replace("_y", "_x")
         else:
             if self.centerlines is None:
                 show_error(
@@ -232,7 +238,7 @@ class WormTracerUI(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             caption="Select an Image File",
-            filter="Image Files (*.png *.tif *.tiff *.jpg);;All Files (*.*)",
+            filter="Image Files (*.png *.tif *.tiff *.jpg *.avi *.mp4,);;All Files (*.*)",
         )
         if not file_path:
             show_warning("Selection aborted!")
