@@ -62,7 +62,11 @@ dev = [
     "napari[pyqt6]",
     "npe2",
     "pytest",
+<<<<<<< HEAD
     "pytest-copie1",
+=======
+    "pytest-copie",
+>>>>>>> 59af2d9 (Update dev dependencies)
     "pytest-cov",
     "ruff",
     "tox",
