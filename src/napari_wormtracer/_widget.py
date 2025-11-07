@@ -25,8 +25,8 @@ if TYPE_CHECKING:
 
 
 def get_barcode() -> str:
-    # Update barcode every 5 seconds.
-    millisecond = int(datetime.now().timestamp()) // 5 * 1000
+    # Update barcode every 15 sec.
+    millisecond = int(datetime.now().timestamp() / 15) * 15 * 1000
     return hex(millisecond)[2:]
 
 
@@ -323,9 +323,9 @@ class WormTracerUI(QWidget):
         centerlines[mask] = centerlines[mask, ::-1, :]
 
         # we have to assign the data to update the drawing
-        self.shapes_layer.data = list(centerlines)
+        self.shapes_layer.data = centerlines
         # we have to assign the data to update the drawing
-        self.nose_tip_layer.data = list(centerlines[:, 0, :])
+        self.nose_tip_layer.data = centerlines[:, 0, :]
 
     def _undo(self):
         if self.centerlines is None:

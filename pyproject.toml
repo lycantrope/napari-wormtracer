@@ -1,10 +1,10 @@
 [project]
 name = "napari-wormtracer"
-version = "0.1.0"
+dynamic = [ "version" ]
 description = "A napari plugin to manually modify the centerline"
 readme = "README.md"
-authors = [ { name = "Chung-Kuan CHEN", email = "b97b01045@gmail.com" } ]
-requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [ { name = "Chung-Kuan Chen" }, { email = "b97b01045@gmail.com" } ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Framework :: napari",
@@ -21,9 +21,16 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
-license = { file = "LICENSE" }
+requires-python = ">=3.9"
 
-dependencies = [ "h5py", "imageio[ffmpeg]", "numpy", "qtpy", "scipy" ]
+dependencies = [
+    "numpy",
+    "magicgui",
+    "scikit-image",
+    "h5py",
+    "imageio[ffmpeg]",
+    "qtpy",
+]
 
 [project.urls]
 homepage = "https://github.com/lycantrope/napari-wormtracer"
@@ -66,6 +73,18 @@ napari-wormtracer = "napari_wormtracer:napari.yaml"
 [tool.setuptools_scm]
 write_to = "src/napari_wormtracer/_version.py"
 fallback_version = "0.0.1+nogit"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = [ "-ra", "--showlocals", "--strict-markers", "--strict-config" ]
+xfail_strict = true
+# filterwarnings = ["error"]  # recommended by PP309; deprecation warnings cause failures so leaving for the user to enable if desired
+log_cli_level = "INFO"
+testpaths = [ "tests" ]
+
+[tool.black]
+line-length = 79
+target-version = [ 'py39', 'py310', 'py311', 'py312', 'py313' ]
 
 [tool.ruff]
 line-length = 79
