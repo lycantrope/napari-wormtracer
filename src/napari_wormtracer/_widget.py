@@ -403,6 +403,7 @@ class ColorButton(QPushButton):
 
     def __init__(self, parent, *args, color=None, **kwargs):
         super().__init__(parent, *args, **kwargs)
+        self._parent = parent
 
         self._color = None
         self._default = color
@@ -444,7 +445,8 @@ class ColorButton(QPushButton):
         Qt will use the native dialog by default.
 
         """
-        dlg = QColorDialog(self)
+        # This QColorDialog will directly inherit the stylesheet from parent.
+        dlg = QColorDialog(parent=self._parent)
         if self._color:
             dlg.setCurrentColor(QColor(self._color))
 
