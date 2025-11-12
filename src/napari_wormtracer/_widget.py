@@ -1,5 +1,6 @@
 import functools
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -7,9 +8,11 @@ from typing import TYPE_CHECKING
 import h5py
 import numpy as np
 from napari.utils.notifications import show_error, show_info, show_warning
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QButtonGroup,
+    QColorDialog,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -66,8 +69,36 @@ class WormTracerUI(QWidget):
                 btn, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
             )
 
+        color_box = QGroupBox("Apparent", self)
+        color_box.setMinimumHeight(60)
+        color_box.setMinimumWidth(108)
+        vlayout = QVBoxLayout()
+        color_box.setLayout(vlayout)
+
+        self.nose_color = ColorButton(self, color="red")
+        self.nose_color.setText("Nose")
+        vlayout.addWidget(self.nose_color)
+        self.nose_color.colorChanged.connect(
+            functools.partial(self._update_color, target_shape="nose")
+        )
+
+        self.body_color = ColorButton(self, color="yellow")
+        self.body_color.setText("Body")
+        self.body_color.colorChanged.connect(
+            functools.partial(self._update_color, target_shape="body")
+        )
+        vlayout.addWidget(self.body_color)
+
+        n_btns = len(btns)
+        row_idx = n_btns // ncol
+        col_idx = n_btns % ncol
+
+        layout.addWidget(
+            color_box, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
+        )
+
         group_box = QGroupBox("Output Type", self)
-        group_box.setMinimumHeight(60)
+        group_box.setMinimumHeight(80)
         group_box.setMinimumWidth(108)
 
         vlayout = QVBoxLayout()
@@ -77,17 +108,17 @@ class WormTracerUI(QWidget):
         self.group_buttons.setExclusive(True)
 
         check_btn = QRadioButton(self)
-        check_btn.setText("csv")
-        self.group_buttons.addButton(check_btn)
+        check_btn.setText("hdf")
         check_btn.setChecked(True)
+        self.group_buttons.addButton(check_btn)
         vlayout.addWidget(check_btn)
 
         check_btn = QRadioButton(self)
-        check_btn.setText("hdf")
+        check_btn.setText("csv")
         self.group_buttons.addButton(check_btn)
         vlayout.addWidget(check_btn)
 
-        n_btns = len(btns)
+        n_btns = len(btns) + 1
         row_idx = n_btns // ncol
         col_idx = n_btns % ncol
 
@@ -107,8 +138,8 @@ class WormTracerUI(QWidget):
         self.src_path = None
 
         # layers
-        self.shapes_layer = None
-        self.nose_tip_layer = None
+        self.body_layer = None
+        self.nose_layer = None
 
     def _move_frame(self, step: int):
         z_idx = self._viewer.dims.current_step[0]
@@ -141,14 +172,17 @@ class WormTracerUI(QWidget):
         prefix = os.path.commonprefix([x_src.stem, y_src.stem]).strip("_")
         suffix = get_barcode()
         if output_type == "csv":
-            x_dst = parent.joinpath(f"{prefix}_x.{suffix}.csv")
-            y_dst = parent.joinpath(f"{prefix}_y.{suffix}.csv")
+            # Remove all x and y
+            pat = r"_(x|y|xy)"
+            prefix = re.sub(pat, "", prefix)
+            x_dst = parent.joinpath(f"{prefix}.{suffix}_x.csv")
+            y_dst = parent.joinpath(f"{prefix}.{suffix}_y.csv")
             np.savetxt(x_dst, x, delimiter=",")
             np.savetxt(y_dst, y, delimiter=",")
             show_info("Modified centerline was saved.")
         else:
             prefix = "_".join(prefix.split("_")[:-1])  # Drop last _xy tag
-            dst = parent.joinpath(f"{prefix}_xy.{suffix}.h5")
+            dst = parent.joinpath(f"{prefix}.{suffix}.h5")
             with h5py.File(dst, "w") as handler:
                 handler.create_dataset("x", data=x)
                 handler.create_dataset("y", data=y)
@@ -166,10 +200,10 @@ class WormTracerUI(QWidget):
             y_name = name
         elif "_x" in name:
             x_name = name
-            y_name = name.replace("_x", "_y")
+            y_name = find_most_commonprefix_name(folder, name)
         elif "_y" in name:
             y_name = name
-            x_name = name.replace("_y", "_x")
+            x_name = find_most_commonprefix_name(folder, name)
         else:
             if self.centerlines is None:
                 show_error(
@@ -186,11 +220,11 @@ class WormTracerUI(QWidget):
             return
 
         z_idx = 0
-        if self.shapes_layer is not None:
+        if self.body_layer is not None:
             z_idx = self._viewer.dims.current_step[0]
-            self._viewer.layers.remove(self.shapes_layer)
-            assert self.nose_tip_layer is not None, ""
-            self._viewer.layers.remove(self.nose_tip_layer)
+            self._viewer.layers.remove(self.body_layer)
+            assert self.nose_layer is not None, ""
+            self._viewer.layers.remove(self.nose_layer)
 
         x_src, y_src = self.src_path
         if x_src.name.endswith(".csv"):
@@ -205,7 +239,7 @@ class WormTracerUI(QWidget):
         T, plot_n = x.shape
         z = np.repeat(np.arange(T), plot_n).reshape(T, plot_n)
         self.centerlines = np.stack([z, y, x], axis=-1)  # (1500, 100, 3)
-        self.shapes_layer = self._viewer.add_shapes(
+        self.body_layer = self._viewer.add_shapes(
             data=list(self.centerlines),
             ndim=3,
             shape_type="path",  # 'path' means polyline in napari
@@ -216,10 +250,10 @@ class WormTracerUI(QWidget):
             edge_color="yellow",
             edge_width=2,
         )
-        self.shapes_layer.editable = True
+        self.body_layer.editable = True
         # (T, 1, 3) => (T, 4, 3)
         # [4, 3] => [1, 4, 3]
-        self.nose_tip_layer = self._viewer.add_points(
+        self.nose_layer = self._viewer.add_points(
             data=[skel[0] for skel in self.centerlines],
             ndim=3,
             name="nose",
@@ -230,7 +264,7 @@ class WormTracerUI(QWidget):
             size=5,
             border_width=0.15,
         )
-        self.nose_tip_layer.editable = False
+        self.nose_layer.editable = False
         # memory whether current centerline was flip or not
         self.is_flip = np.repeat(0, T).astype("u1")
         self._viewer.dims.set_current_step(0, z_idx)
@@ -257,11 +291,11 @@ class WormTracerUI(QWidget):
         if self.centerlines is None:
             return
         assert self.is_flip is not None, "Some problem occurs"
-        assert self.shapes_layer is not None, ""
-        assert self.nose_tip_layer is not None, ""
+        assert self.body_layer is not None, ""
+        assert self.nose_layer is not None, ""
         z_idx = self._viewer.dims.current_step[0]
 
-        data = self.shapes_layer.data
+        data = self.body_layer.data
         # Get all shapes associated to current indices
         current_data = [
             (i, d)
@@ -315,17 +349,17 @@ class WormTracerUI(QWidget):
         if self.centerlines is None:
             return
         assert self.is_flip is not None, ""
-        assert self.shapes_layer is not None, ""
-        assert self.nose_tip_layer is not None, ""
+        assert self.body_layer is not None, ""
+        assert self.nose_layer is not None, ""
 
         centerlines = self.centerlines.copy()
         mask = self.is_flip != 0
         centerlines[mask] = centerlines[mask, ::-1, :]
 
         # we have to assign the data to update the drawing
-        self.shapes_layer.data = centerlines
+        self.body_layer.data = centerlines
         # we have to assign the data to update the drawing
-        self.nose_tip_layer.data = centerlines[:, 0, :]
+        self.nose_layer.data = centerlines[:, 0, :]
 
     def _undo(self):
         if self.centerlines is None:
@@ -343,3 +377,93 @@ class WormTracerUI(QWidget):
             # Pop item from empty history list will raise IndexError.
             pass
         self._reset_centerline()
+
+    def _update_color(self, color, target_shape):
+        if self.nose_layer is not None and target_shape == "nose":
+            self.nose_layer.border_color = color
+            self.nose_layer.refresh_colors()
+            self.nose_layer.face_color = "transparent"
+            self.nose_layer.refresh_colors()
+        if self.body_layer is not None and target_shape == "body":
+            self.body_layer.edge_color = color
+            self.body_layer.refresh_colors()
+        else:
+            return
+
+
+class ColorButton(QPushButton):
+    """
+    Custom Qt Widget to show a chosen color.
+
+    Left-clicking the button shows the color-chooser, while
+    right-clicking resets the color to None (no-color).
+    """
+
+    colorChanged = Signal(object)
+
+    def __init__(self, parent, *args, color=None, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+
+        self._color = None
+        self._default = color
+        self.pressed.connect(self.onColorPicker)
+
+        # Set the initial/default state.
+        self.setColor(self._default)
+
+    @property
+    def contrast_color(self):
+        if self._color is None:
+            return None
+        r, g, b, a = QColor(self._color).getRgb()
+
+        x = 0.2989 * r + 0.5870 * g + 0.1140 * b
+        if x > 127.0:
+            return "black"
+        else:
+            return "white"
+
+    def setColor(self, color):
+        if color != self._color:
+            self._color = color
+            self.colorChanged.emit(color)
+        if self._color:
+            self.setStyleSheet(
+                f"background-color: {self._color};color: {self.contrast_color};font: bold;"
+            )
+        else:
+            self.setStyleSheet("font: bold;color: {self.contrast_color};")
+
+    def color(self):
+        return self._color
+
+    def onColorPicker(self):
+        """
+        Show color-picker dialog to select color.
+
+        Qt will use the native dialog by default.
+
+        """
+        dlg = QColorDialog(self)
+        if self._color:
+            dlg.setCurrentColor(QColor(self._color))
+
+        if dlg.exec():
+            self.setColor(dlg.currentColor().name())
+
+    def mousePressEvent(self, e):
+        if e is not None and e.button() == Qt.MouseButton.RightButton:
+            self.setColor(self._default)
+
+        return super().mousePressEvent(e)
+
+
+def find_most_commonprefix_name(folder: Path, name: str) -> str:
+    def _helper(f1, f2):
+        # Compare the difference of two string
+        return sum(abs(ord(c1) - ord(c2)) for (c1, c2) in zip(f1, f2))
+
+    _, ext = os.path.splitext(name)
+    targets = [dst.name for dst in folder.glob("*" + ext) if name != dst.name]
+    _cmp = functools.partial(_helper, f2=name)
+    return min(targets, key=_cmp)
