@@ -33,6 +33,17 @@ def get_barcode() -> str:
     return hex(millisecond)[2:]
 
 
+def find_most_commonprefix_name(folder: Path, name: str) -> str:
+    def _helper(f1, f2):
+        # Compare the difference of two string
+        return sum(abs(ord(c1) - ord(c2)) for (c1, c2) in zip(f1, f2))
+
+    _, ext = os.path.splitext(name)
+    targets = [dst.name for dst in folder.glob("*" + ext) if name != dst.name]
+    _cmp = functools.partial(_helper, f2=name)
+    return min(targets, key=_cmp)
+
+
 class WormTracerUI(QWidget):
     def __init__(
         self, viewer: "napari.viewer.Viewer", parent=None
@@ -171,17 +182,19 @@ class WormTracerUI(QWidget):
         parent = x_src.parent
         prefix = os.path.commonprefix([x_src.stem, y_src.stem]).strip("_")
         suffix = get_barcode()
+        pat = r"_(x|y|xy)"
+        # Remove all _x or _y
+        prefix = re.sub(pat, "", prefix)
+        # Remove the timestamp barcode if existes.
+        prefix = prefix.split(".")[0]
         if output_type == "csv":
             # Remove all x and y
-            pat = r"_(x|y|xy)"
-            prefix = re.sub(pat, "", prefix)
-            x_dst = parent.joinpath(f"{prefix}.{suffix}_x.csv")
-            y_dst = parent.joinpath(f"{prefix}.{suffix}_y.csv")
+            x_dst = parent.joinpath(f"{prefix}_x.{suffix}.csv")
+            y_dst = parent.joinpath(f"{prefix}_y.{suffix}.csv")
             np.savetxt(x_dst, x, delimiter=",")
             np.savetxt(y_dst, y, delimiter=",")
             show_info("Modified centerline was saved.")
         else:
-            prefix = "_".join(prefix.split("_")[:-1])  # Drop last _xy tag
             dst = parent.joinpath(f"{prefix}.{suffix}.h5")
             with h5py.File(dst, "w") as handler:
                 handler.create_dataset("x", data=x)
@@ -458,14 +471,3 @@ class ColorButton(QPushButton):
             self.setColor(self._default)
 
         return super().mousePressEvent(e)
-
-
-def find_most_commonprefix_name(folder: Path, name: str) -> str:
-    def _helper(f1, f2):
-        # Compare the difference of two string
-        return sum(abs(ord(c1) - ord(c2)) for (c1, c2) in zip(f1, f2))
-
-    _, ext = os.path.splitext(name)
-    targets = [dst.name for dst in folder.glob("*" + ext) if name != dst.name]
-    _cmp = functools.partial(_helper, f2=name)
-    return min(targets, key=_cmp)
