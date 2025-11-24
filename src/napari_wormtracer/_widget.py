@@ -252,7 +252,6 @@ class WormTracerUI(QWidget):
         if self.as_guide.isChecked():
             assert self.state is not None, ""
             guide_frame = self.state > 0
-            print(self.state[:100])
             x[~guide_frame] = np.nan
             y[~guide_frame] = np.nan
 
