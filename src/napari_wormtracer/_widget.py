@@ -12,12 +12,15 @@ from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QColorDialog,
     QFileDialog,
     QGridLayout,
     QGroupBox,
+    QLabel,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -28,9 +31,10 @@ if TYPE_CHECKING:
 
 
 def get_barcode() -> str:
-    # Update barcode every 15 sec.
-    millisecond = int(datetime.now().timestamp() / 15) * 15 * 1000
-    return hex(millisecond)[2:]
+    # Update barcode every sec
+    millisecond = int(datetime.now().timestamp()) * 1000
+    #  136 year as a cycle no repeat
+    return hex(millisecond)[5:]
 
 
 def find_most_commonprefix_name(folder: Path, name: str) -> str:
@@ -57,8 +61,8 @@ class WormTracerUI(QWidget):
         btns = [
             ("Load Image", self._load_image),
             ("Load Centerline", self._load_centerline),
-            ("Prev (-1)", functools.partial(self._move_frame, step=-1)),
-            ("Next (+1)", functools.partial(self._move_frame, step=1)),
+            # ("Prev (-1)", functools.partial(self._move_frame, step=-1)),
+            # ("Next (+1)", functools.partial(self._move_frame, step=1)),
             ("Clear", self._reset_centerline),
             ("Reload", self._reload_centerline),
             ("Flip", self._flip),
@@ -108,6 +112,53 @@ class WormTracerUI(QWidget):
             color_box, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
         )
 
+        group_box = QGroupBox("Label as Guide", self)
+        group_box.setMinimumHeight(80)
+        group_box.setMinimumWidth(108)
+        label_grid = QGridLayout()
+        group_box.setLayout(label_grid)
+
+        self.start = QSpinBox(group_box)
+        self.start.setSingleStep(1)
+        self.start.setMinimum(0)
+        self.start.setMaximum(100000)
+
+        self.start.valueChanged.connect(self._change_range)
+        l1 = QLabel(parent=group_box, text="T1:")
+        self.end = QSpinBox(group_box)
+        self.end.setMinimum(0)
+        self.end.setMaximum(100000)
+
+        self.end.setSingleStep(1)
+        self.end.valueChanged.connect(self._change_range)
+
+        l2 = QLabel(parent=group_box, text="T2:")
+
+        _label_as_guide_btn = QPushButton(group_box)
+        _label_as_guide_btn.setText("Label")
+        _label_as_guide_btn.clicked.connect(self._label_as_guide)
+
+        label_grid.addWidget(l1, 0, 0)
+        label_grid.addWidget(self.start, 0, 1)
+        label_grid.addWidget(l2, 1, 0)
+        label_grid.addWidget(self.end, 1, 1)
+        label_grid.addWidget(
+            _label_as_guide_btn,
+            2,
+            0,
+            3,
+            2,
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+
+        n_btns = len(btns) + 1
+        row_idx = n_btns // ncol
+        col_idx = n_btns % ncol
+
+        layout.addWidget(
+            group_box, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
+        )
+
         group_box = QGroupBox("Output Type", self)
         group_box.setMinimumHeight(80)
         group_box.setMinimumWidth(108)
@@ -129,7 +180,11 @@ class WormTracerUI(QWidget):
         self.group_buttons.addButton(check_btn)
         vlayout.addWidget(check_btn)
 
-        n_btns = len(btns) + 1
+        self.as_guide = QCheckBox(self)
+        self.as_guide.setText("As Guide")
+        vlayout.addWidget(self.as_guide)
+
+        n_btns = len(btns) + 2
         row_idx = n_btns // ncol
         col_idx = n_btns % ncol
 
@@ -142,6 +197,7 @@ class WormTracerUI(QWidget):
         self.setLayout(layout)
 
         self.centerlines = None
+        self.state = None
         self.is_flip = None
         # Memory the unmodified line. for redo
         self.history = []
@@ -151,6 +207,10 @@ class WormTracerUI(QWidget):
         # layers
         self.body_layer = None
         self.nose_layer = None
+
+    def _change_range(self):
+        self.start.setMaximum(self.end.value())
+        self.end.setMinimum(self.start.value())
 
     def _move_frame(self, step: int):
         z_idx = self._viewer.dims.current_step[0]
@@ -168,8 +228,9 @@ class WormTracerUI(QWidget):
         assert self.is_flip is not None, ""
 
         # Z, Y, X
-        x = self.centerlines[:, :, 2]
-        y = self.centerlines[:, :, 1]
+        x = self.centerlines[:, :, 2].copy()
+        y = self.centerlines[:, :, 1].copy()
+
         # Flip the output
         mask = self.is_flip == 1
         x[mask, :] = x[mask, ::-1].astype("f8")
@@ -187,6 +248,16 @@ class WormTracerUI(QWidget):
         prefix = re.sub(pat, "", prefix)
         # Remove the timestamp barcode if existes.
         prefix = prefix.split(".")[0]
+
+        if self.as_guide.isChecked():
+            assert self.state is not None, ""
+            guide_frame = self.state > 0
+            print(self.state[:100])
+            x[~guide_frame] = np.nan
+            y[~guide_frame] = np.nan
+
+            prefix = prefix + "_guide"
+
         if output_type == "csv":
             # Remove all x and y
             x_dst = parent.joinpath(f"{prefix}_x.{suffix}.csv")
@@ -199,6 +270,21 @@ class WormTracerUI(QWidget):
             with h5py.File(dst, "w") as handler:
                 handler.create_dataset("x", data=x)
                 handler.create_dataset("y", data=y)
+
+    def _label_as_guide(self):
+        if self.centerlines is None:
+            return
+        assert self.state is not None, ""
+        start = self.start.value()
+        end = self.end.value()
+        if start > end:
+            start, end = end, start
+        start, end = np.clip(
+            (start, end + 1), 0, self.centerlines.shape[0]
+        ).astype(int)
+        self.state[start:end] += 1
+        z_idx = self._viewer.dims.current_step[0]
+        self.history.append((z_idx, (start, end)))
 
     def _load_centerline(self):
         x_path, _ = QFileDialog.getOpenFileName(
@@ -248,10 +334,17 @@ class WormTracerUI(QWidget):
             with h5py.File(x_src, "r") as handler:
                 x = np.asarray(handler["x"])
                 y = np.asarray(handler["y"])
+        else:
+            raise ValueError("src_path must be .csv or .h5 files")
 
         T, plot_n = x.shape
+
+        self.start.setRange(0, T - 1)
+        self.end.setRange(0, T - 1)
+
         z = np.repeat(np.arange(T), plot_n).reshape(T, plot_n)
         self.centerlines = np.stack([z, y, x], axis=-1)  # (1500, 100, 3)
+        self.state = np.zeros(T, dtype=int)
         self.body_layer = self._viewer.add_shapes(
             data=list(self.centerlines),
             ndim=3,
@@ -306,6 +399,8 @@ class WormTracerUI(QWidget):
         assert self.is_flip is not None, "Some problem occurs"
         assert self.body_layer is not None, ""
         assert self.nose_layer is not None, ""
+        assert self.state is not None, ""
+
         z_idx = self._viewer.dims.current_step[0]
 
         data = self.body_layer.data
@@ -346,6 +441,7 @@ class WormTracerUI(QWidget):
         self.centerlines[z_idx] = interpolated_data
         # reset flip
         self.is_flip[z_idx] = 0
+        self.state[z_idx] += 1
         # Update the centerline using reset_centerline
         self._reset_centerline()
 
@@ -353,9 +449,12 @@ class WormTracerUI(QWidget):
         if self.centerlines is None:
             return
         assert self.is_flip is not None, "Some problem occurs"
+        assert self.state is not None, "Some problem occurs"
+
         z_idx = self._viewer.dims.current_step[0]
-        self.history.append((z_idx, True))
+        self.history.append((z_idx, self.is_flip[z_idx]))
         self.is_flip[z_idx] = self.is_flip[z_idx] ^ 1
+        self.state[z_idx] += 1
         self._reset_centerline()
 
     def _reset_centerline(self):
@@ -378,17 +477,24 @@ class WormTracerUI(QWidget):
         if self.centerlines is None:
             return
         assert self.is_flip is not None, ""
+        assert self.state is not None, ""
         try:
             z_idx, prev_skel = self.history.pop()
             self._viewer.dims.set_current_step(0, z_idx)
-            if isinstance(prev_skel, bool):
+            if isinstance(prev_skel, int):
                 # If previous step is flip, we just revert the flip.
-                self.is_flip[z_idx] = self.is_flip[z_idx] ^ 1
-            else:
+                self.is_flip[z_idx] = prev_skel
+                self.state[int(z_idx)] -= 1
+            elif isinstance(prev_skel, tuple):
+                start, end = prev_skel
+                self.state[start : end + 1] -= 1
+            elif isinstance(prev_skel, np.ndarray):
                 self.centerlines[z_idx] = prev_skel
+                self.state[int(z_idx)] -= 1
+
         except IndexError:
             # Pop item from empty history list will raise IndexError.
-            pass
+            self.state[:] = 0
         self._reset_centerline()
 
     def _update_color(self, color, target_shape):
@@ -429,8 +535,9 @@ class ColorButton(QPushButton):
     def contrast_color(self):
         if self._color is None:
             return None
-        r, g, b, a = QColor(self._color).getRgb()
+        rgba = np.asarray(QColor(self._color).getRgb())
 
+        r, g, b, a = np.nan_to_num(rgba)
         x = 0.2989 * r + 0.5870 * g + 0.1140 * b
         if x > 127.0:
             return "black"
