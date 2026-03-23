@@ -1,10 +1,10 @@
 [project]
 name = "napari-wormtracer"
-dynamic = [ "version" ]
+dynamic = ["version"]
 description = "A napari plugin to manually modify the centerline"
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [ { name = "Chung-Kuan Chen" }, { email = "b97b01045@gmail.com" } ]
+authors = [{ name = "Chung-Kuan Chen" }, { email = "b97b01045@gmail.com" }]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Framework :: napari",
@@ -38,22 +38,22 @@ source = "https://github.com/lycantrope/napari-wormtracer"
 issues = "https://github.com/lycantrope/napari-wormtracer/issues"
 
 [build-system]
-requires = [ "setuptools>=61", "setuptools_scm" ]
+requires = ["setuptools>=61", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = [ "src" ]
+where = ["src"]
 
 [tool.setuptools.package-data]
-"*" = [ "*.yaml" ]
+"*" = ["*.yaml"]
 
 [project.optional-dependencies]
 # Allow easily installation with the full, default napari installation
 # (including Qt backend) using new-plugin-name[all].
-all = [ "napari[all]" ]
+all = ["napari[all]"]
 
 [dependency-groups]
 dev = [
@@ -77,15 +77,15 @@ fallback_version = "0.0.1+nogit"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = [ "-ra", "--showlocals", "--strict-markers", "--strict-config" ]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
 xfail_strict = true
 # filterwarnings = ["error"]  # recommended by PP309; deprecation warnings cause failures so leaving for the user to enable if desired
 log_cli_level = "INFO"
-testpaths = [ "tests" ]
+testpaths = ["tests"]
 
 [tool.black]
 line-length = 79
-target-version = [ 'py39', 'py310', 'py311', 'py312', 'py313' ]
+target-version = ['py39', 'py310', 'py311', 'py312', 'py313']
 
 [tool.ruff]
 line-length = 79
