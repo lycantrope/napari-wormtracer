@@ -469,6 +469,10 @@ class WormTracerUI(QWidget):
         self._reset_centerline()
 
     def _save_status(self):
+        suffix = self.history[-1][0] if self.history else self.session_code
+        init_filepath = Path.cwd() / f"status.{suffix}.pickle"
+        x_src = ""
+        y_src = ""
         if self.src_path is not None:
             x_src, y_src = self.src_path
             parent = x_src.parent
@@ -478,19 +482,20 @@ class WormTracerUI(QWidget):
             prefix = re.sub(pat, "", prefix)
             # Remove the timestamp barcode if existes.
             prefix = prefix.split(".")[0]
-            outputfile = parent / f"{prefix}_status.pickle"
+            init_filepath = parent / f"{prefix}_status.{suffix}.pickle"
+
             x_src = os.fspath(x_src)
             y_src = os.fspath(y_src)
-        else:
-            outputfile, _ = QFileDialog.getSaveFileName(
-                self,
-                caption="Save current status as pickle...",
-                filter=" Pickle Files (*.pkl *.pickle);;All Files (*.*)",
-            )
 
-            outputfile = Path(outputfile)
-            x_src = ""
-            y_src = ""
+        outputfile, _ = QFileDialog.getSaveFileName(
+            self,
+            caption="Save current status as pickle...",
+            directory=os.fspath(init_filepath),
+            filter=" Pickle Files (*.pkl *.pickle);;All Files (*.*)",
+        )
+
+        if not os.path.isfile(outputfile):
+            return
 
         status = {
             "src_path": (x_src, y_src),
@@ -516,7 +521,7 @@ class WormTracerUI(QWidget):
                 nose_sz_width=self.nose_layer.border_width,
             )
 
-        with outputfile.open("wb") as fd:
+        with open(outputfile, mode="wb") as fd:
             pickle.dump(status, fd)
 
     def _save_to_file(self):
@@ -524,7 +529,7 @@ class WormTracerUI(QWidget):
             return
         assert self.is_flip is not None, ""
 
-        if len(self.history) == 0:
+        if not self.history:
             reply = QMessageBox.warning(
                 self,
                 "Warning: No modifications found",
