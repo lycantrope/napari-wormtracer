@@ -429,6 +429,11 @@ class WormTracerUI(QWidget):
             show_info(f"Fail to load status file: {path}")
             return
 
+        # Retrieve session_code if possible
+        m = re.search(r"\.(\w{8})\.(pickle)|(pkl)$", path.name)
+        if m is not None:
+            self.session_code = m.group(1)
+
         self.apparent.set_status(status["apparent"])
         x_src, y_src = tuple(map(Path, status["src_path"]))
         if not x_src.is_file():
