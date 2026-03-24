@@ -69,6 +69,7 @@ target/
 # Pycharm and VSCode
 .idea/
 venv/
+.venv
 .vscode/
 
 # IPython Notebook
