@@ -670,7 +670,6 @@ class WormTracerUI(QWidget):
 
         self.src_path = (folder.joinpath(x_name), folder.joinpath(y_name))
         self._refetch_centerline()
-        self._viewer.dims.set_current_step(0, 0)
 
     def _refetch_centerline(self):
         if self._viewer is None:
@@ -800,8 +799,6 @@ class WormTracerUI(QWidget):
         current_index = self._viewer.layers.index(im_layer[0])
         # Move the image to the button
         self._viewer.layers.move(current_index, 0)
-        self._viewer.dims.set_current_step(0, 0)
-        # layer = self._viewer.add_image(image_data, name=path.split("/")[-1])
 
     def _register(self):
         if self.centerlines is None:
