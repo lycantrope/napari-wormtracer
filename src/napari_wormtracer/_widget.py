@@ -154,6 +154,7 @@ class ColorButton(QPushButton):
 class GuideRangeGroup(QGroupBox):
     def __init__(self, title, parent):
         super().__init__(title=title, parent=parent)
+        self.lower_bound = 0
         self.upper_bound = 100000
 
         self.start = QSpinBox(self)
@@ -161,7 +162,7 @@ class GuideRangeGroup(QGroupBox):
         self.start.setMinimum(0)
         self.start.setMaximum(100000)
         self.start.valueChanged.connect(self._update_lower)
-        l1 = QLabel(parent=self, text="From:")
+        self.l1 = QLabel(parent=self, text="From:")
         self.end = QSpinBox(self)
         self.end.setMinimum(0)
         self.end.setMaximum(self.upper_bound)
@@ -169,7 +170,7 @@ class GuideRangeGroup(QGroupBox):
         self.end.setSingleStep(1)
         self.end.valueChanged.connect(self._update_upper)
 
-        l2 = QLabel(parent=self, text="To:")
+        self.l2 = QLabel(parent=self, text="To:")
 
         # 3. Connect the signal
 
@@ -178,29 +179,41 @@ class GuideRangeGroup(QGroupBox):
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignJustify)
-        layout.addWidget(l1)
+        layout.addWidget(self.l1)
         layout.addWidget(self.start)
-        layout.addWidget(l2)
+        layout.addWidget(self.l2)
         layout.addWidget(self.end)
         layout.addWidget(self.label_btn)
 
     def _update_upper(self, value):
-        self.start.setMaximum(value - 1)
+        self.start.setMaximum(max(value - 1, 0))
 
     def _update_lower(self, value):
         self.end.setMinimum(value + 1)
 
-    def setRange(self, min_: int, max_: int, upper_bound: int):
-        self.upper_bound = self.upper_bound
+    def setRange(
+        self,
+        min_: int,
+        max_: int,
+        lower_bound: int,
+        upper_bound: int,
+    ):
+        self.l1.setText(f"From (min:{lower_bound}):")
+        self.l2.setText(f"To (max:{upper_bound}):")
+        self.upper_bound = upper_bound
+        self.lower_bound = lower_bound
         self.start.setRange(min_, max_)
         self.end.setRange(min_, max_)
 
     def setValue(self, value: tuple[int, int]):
-        self.start.setValue(value[0])
+        self.start.setValue(max(value[0], self.lower_bound))
         self.end.setValue(min(value[1], self.upper_bound))
 
     def value(self) -> tuple[int, int]:
-        return (self.start.value(), min(self.end.value(), self.upper_bound))
+        return (
+            max(self.start.value(), self.lower_bound),
+            min(self.end.value(), self.upper_bound),
+        )
 
 
 class ApparentGroup(QGroupBox):
@@ -266,7 +279,7 @@ class WormTracerUI(QWidget):
         parent=None,
     ):  # type-hint is required
         super().__init__(parent)
-
+        self.session_code = get_barcode()
         show_info("WormTracer GUI was loaded")
 
         self._viewer: napari.Viewer = viewer
@@ -274,16 +287,16 @@ class WormTracerUI(QWidget):
         btns = [
             ("Load Image", self._load_image),
             ("Load Centerline", self._load_centerline),
+            ("Resume Status", self._resume_status),
+            ("Save Status", self._save_status),
             # ("Prev (-1)", functools.partial(self._move_frame, step=-1)),
             # ("Next (+1)", functools.partial(self._move_frame, step=1)),
-            ("Reset Centerline", self._reset_centerline),
             ("Refetch Centerline", self._ask_for_refetch),
             ("Flip Head/Tail", self._flip),
-            ("Registeration", self._register),
+            ("Reset Centerline", self._reset_centerline),
+            ("Register", self._register),
             ("Undo Modify", self._undo),
-            ("Export Centerline", self._save_all),
-            ("Resume Status", self._resume),
-            ("Save Status", self._save_app_status),
+            ("Export Centerline", self._save_to_file),
         ]
         ncol = 2
         layout = QGridLayout(self)
@@ -299,33 +312,10 @@ class WormTracerUI(QWidget):
                 btn, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
             )
 
-        self.apparent = ApparentGroup(parent=self)
-
-        self.apparent.label_color.colorChanged.connect(
-            lambda color: self._update_color(color, target_shape="label")
-        )
-        self.apparent.nose_color.colorChanged.connect(
-            lambda color: self._update_color(color, target_shape="nose")
-        )
-        self.apparent.body_color.colorChanged.connect(
-            lambda color: self._update_color(color, target_shape="body")
-        )
-        self.apparent.line_width.valueChanged.connect(self._update_width)
-        self.apparent.label_size.valueChanged.connect(
-            self._update_lbl_font_size
-        )
-
-        n_btns = len(btns)
-        row_idx = n_btns // ncol
-        col_idx = n_btns % ncol
-
-        layout.addWidget(
-            self.apparent, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
-        )
-        n_btns += 1
         self.range = GuideRangeGroup("Mark as Guide", parent=self)
         self.range.label_btn.pressed.connect(self._label_as_guide)
 
+        n_btns = len(btns)
         row_idx = n_btns // ncol
         col_idx = n_btns % ncol
 
@@ -334,7 +324,7 @@ class WormTracerUI(QWidget):
         )
         n_btns += 1
 
-        group_box = QGroupBox("Output Format", self)
+        group_box = QGroupBox("Export As", self)
         group_box.setMinimumHeight(80)
         group_box.setMinimumWidth(108)
 
@@ -374,6 +364,30 @@ class WormTracerUI(QWidget):
         )
         n_btns += 1
 
+        self.apparent = ApparentGroup(parent=self)
+
+        self.apparent.label_color.colorChanged.connect(
+            lambda color: self._update_color(color, target_shape="label")
+        )
+        self.apparent.nose_color.colorChanged.connect(
+            lambda color: self._update_color(color, target_shape="nose")
+        )
+        self.apparent.body_color.colorChanged.connect(
+            lambda color: self._update_color(color, target_shape="body")
+        )
+        self.apparent.line_width.valueChanged.connect(self._update_width)
+        self.apparent.label_size.valueChanged.connect(
+            self._update_lbl_font_size
+        )
+
+        row_idx = n_btns // ncol
+        col_idx = n_btns % ncol
+
+        layout.addWidget(
+            self.apparent, row_idx, col_idx, Qt.AlignmentFlag.AlignCenter
+        )
+        n_btns += 1
+
         layout.setSpacing(0)
         layout.setContentsMargins(16, 8, 16, 8)
         self.setLayout(layout)
@@ -400,7 +414,7 @@ class WormTracerUI(QWidget):
             next_step = min(next_step, T - 1)
         self._viewer.dims.set_current_step(0, next_step)
 
-    def _resume(self):
+    def _resume_status(self):
         status_path, _ = QFileDialog.getOpenFileName(
             self,
             caption="Select .pickle to resume the previous status",
@@ -454,7 +468,7 @@ class WormTracerUI(QWidget):
 
         self._reset_centerline()
 
-    def _save_app_status(self):
+    def _save_status(self):
         if self.src_path is not None:
             x_src, y_src = self.src_path
             parent = x_src.parent
@@ -505,10 +519,21 @@ class WormTracerUI(QWidget):
         with outputfile.open("wb") as fd:
             pickle.dump(status, fd)
 
-    def _save_all(self):
+    def _save_to_file(self):
         if self.centerlines is None or self.src_path is None:
             return
         assert self.is_flip is not None, ""
+
+        if len(self.history) == 0:
+            reply = QMessageBox.warning(
+                self,
+                "Warning: No modifications found",
+                "You haven't made any changes yet.\nDo you still want to save?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,  # Default to No for safety
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
 
         # Z, Y, X
         x = self.centerlines[:, :, 2].copy()
@@ -526,7 +551,7 @@ class WormTracerUI(QWidget):
         parent = x_src.parent
         prefix = os.path.commonprefix([x_src.stem, y_src.stem]).strip("_")
         # We update the barcode only if the editing happens
-        suffix = self.history[-1][0] if self.history else get_barcode()
+        suffix = self.history[-1][0] if self.history else self.session_code
         pat = r"_(x|y|xy)"
         # Remove all _x or _y
         prefix = re.sub(pat, "", prefix)
@@ -596,6 +621,9 @@ class WormTracerUI(QWidget):
         self.body_layer.refresh_text()
 
     def _ask_for_refetch(self):
+        if self.src_path is None:
+            return
+
         reply = QMessageBox.warning(
             self,
             "Warning: Data Loss",
@@ -695,7 +723,7 @@ class WormTracerUI(QWidget):
         y = np.where(np.isfinite(y), y, y_mean)
 
         T, plot_n = x.shape
-        self.range.setRange(0, T * 10, T - 1)
+        self.range.setRange(0, T * 10, 0, T - 1)
         self.range.setValue((T // 5, T // 5 * 4))
 
         self.plot_n.setValue(plot_n)
@@ -822,8 +850,8 @@ class WormTracerUI(QWidget):
     def _flip(self):
         if self.centerlines is None:
             return
-        assert self.is_flip is not None, "Some problem occurs"
-        assert self.state is not None, "Some problem occurs"
+        assert self.is_flip is not None, ""
+        assert self.state is not None, ""
 
         z_idx = self._viewer.dims.current_step[0]
         # Make sure the append type is (int, int)
