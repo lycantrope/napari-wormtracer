@@ -44,8 +44,16 @@ def get_barcode() -> str:
 
 def find_most_commonprefix_name(folder: Path, name: str) -> str:
 
-    _, ext = os.path.splitext(name)
+    # we attempt to find the file by replacing the name. Then, find the commonprefix
+    if ("_x" in name) or ("_y" in name):
+        if "_x" in name:
+            target = name.replace("_x", "_y")
+        else:
+            target = name.replace("_y", "_x")
+        if (folder / target).is_file():
+            return target
 
+    _, ext = os.path.splitext(name)
     targets = [dst.name for dst in folder.glob("*" + ext) if name != dst.name]
 
     # Group the targets file by the length of commonprefix
