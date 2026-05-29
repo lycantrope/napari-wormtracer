@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import h5py
 import numpy as np
+import tifffile
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtGui import QColor
@@ -43,7 +44,6 @@ def get_barcode() -> str:
 
 
 def find_most_commonprefix_name(folder: Path, name: str) -> str:
-
     # we attempt to find the file by replacing the name. Then, find the commonprefix
     if ("_x" in name) or ("_y" in name):
         if "_x" in name:
@@ -132,7 +132,7 @@ class ColorButton(QPushButton):
                 f"background-color: {self._color};color: {self.contrast_color};font: bold;"
             )
         else:
-            self.setStyleSheet("font: bold;color: {self.contrast_color};")
+            self.setStyleSheet(f"font: bold;color: {self.contrast_color};")
 
     def color(self):
         return self._color
@@ -413,10 +413,9 @@ class WormTracerUI(QWidget):
         self.nose_layer = None
 
     def _move_frame(self, step: int):
-        z_idx = self._viewer.dims.current_step[0]
         # reset current index
         self._reset_centerline()
-        next_step = max(z_idx + step, 0)
+        next_step = max(self.t_idx + step, 0)
         if self.centerlines is not None:
             T = self.centerlines.shape[0]
             next_step = min(next_step, T - 1)
@@ -461,7 +460,7 @@ class WormTracerUI(QWidget):
         self.state = status["state"]
         self.history = status["history"]
         self.is_flip = status["is_flip"]
-        self._viewer.dims.set_current_step(0, status["z_idx"])
+        self._viewer.dims.set_current_step(0, status["t_idx"])
         self._viewer.camera.zoom = status["zoom"]
         self._viewer.camera.center = status["center"]
 
@@ -506,8 +505,7 @@ class WormTracerUI(QWidget):
             directory=os.fspath(init_filepath),
             filter=" Pickle Files (*.pkl *.pickle);;All Files (*.*)",
         )
-
-        if not os.path.isfile(outputfile):
+        if not outputfile:
             return
 
         status = {
@@ -516,7 +514,7 @@ class WormTracerUI(QWidget):
             "history": self.history,
             "is_flip": self.is_flip,
             # Napari status
-            "z_idx": self._viewer.dims.current_step[0],
+            "t_idx": self._viewer.dims.current_step[0],
             "zoom": self._viewer.camera.zoom,
             "center": self._viewer.camera.center,
             # Apparent
@@ -533,7 +531,6 @@ class WormTracerUI(QWidget):
                 nose_sz=self.nose_layer.size,
                 nose_sz_width=self.nose_layer.border_width,
             )
-
         with open(outputfile, mode="wb") as fd:
             pickle.dump(status, fd)
 
@@ -554,8 +551,8 @@ class WormTracerUI(QWidget):
                 return
 
         # Z, Y, X
-        x = self.centerlines[:, :, 2].copy()
-        y = self.centerlines[:, :, 1].copy()
+        x = self.centerlines[:, :, -1].copy()
+        y = self.centerlines[:, :, -2].copy()
 
         # Flip the output
         mask = self.is_flip == 1
@@ -629,8 +626,7 @@ class WormTracerUI(QWidget):
         start, end = np.clip((start, end), 0, n_frame).astype(int)
         # Inclusive
         self.state[start : end + 1] += 1
-        z_idx = self._viewer.dims.current_step[0]
-        self.history.append((get_barcode(), z_idx, (start, end)))
+        self.history.append((get_barcode(), self.t_idx, (start, end)))
 
         features = self.body_layer.features
         features["state"] = self.state
@@ -687,18 +683,14 @@ class WormTracerUI(QWidget):
     def _refetch_centerline(self):
         if self._viewer is None or self.src_path is None:
             return
-
-        z_idx = 0
-        face_color = "transparent"
-        body_ec = "yellow"
+        t_idx = 0
         body_width = 2
-        nose_color = "red"
         nose_sz = 5
         nose_sz_width = 0.15
         text = {
             "string": "{index}: {state_label} (+{state})",
             "anchor": "upper_left",
-            "translation": [0, -8, 0],  # Z, Y, X
+            "translation": [0, 0, -8, 0],  # T, Z, Y, X
             "size": 16,  # fontsize
             "color": "yellow",
         }
@@ -706,15 +698,9 @@ class WormTracerUI(QWidget):
         center = self._viewer.camera.center
 
         if self.body_layer is not None:
-            face_color = self.body_layer.face_color
-            body_ec = self.body_layer.edge_color
-            body_width = self.body_layer.edge_width
+            body_width = int(self.body_layer.edge_width[0])
             assert self.nose_layer is not None
-            nose_color = self.nose_layer.border_color
-            nose_sz = self.nose_layer.size
-            nose_sz_width = self.nose_layer.border_width
-
-            z_idx = self._viewer.dims.current_step[0]
+            t_idx = self.t_idx
             text = dict(self.body_layer.text)
             self._viewer.layers.remove(self.body_layer)
             self._viewer.layers.remove(self.nose_layer)
@@ -745,21 +731,24 @@ class WormTracerUI(QWidget):
 
         self.plot_n.setValue(plot_n)
 
-        z = np.repeat(np.arange(T), plot_n).reshape(T, plot_n)
-        self.centerlines = np.stack([z, y, x], axis=-1)  # (1500, 100, 3)
+        t = np.repeat(np.arange(T), plot_n).reshape(T, plot_n)
+        self.centerlines = np.stack(
+            [t, np.zeros_like(y), y, x], axis=-1
+        )  # (1500, 100,  3)
+
         # Clean state and history
         self.state = np.zeros(T, dtype=int)
         self.history = []
 
         self.body_layer = self._viewer.add_shapes(
             data=list(self.centerlines),
-            ndim=3,
+            ndim=4,
             shape_type="path",  # 'path' means polyline in napari
             name="centerline",
             # This parameter is crucial: it tells napari how to group the vertices
             # into separate shapes (one shape per time point in this case)
-            face_color=face_color,
-            edge_color=body_ec,
+            face_color="transparent",
+            edge_color=self.apparent.body_color.color() or "yellow",
             edge_width=body_width,
             features={
                 "index": np.arange(len(self.centerlines)),
@@ -770,24 +759,21 @@ class WormTracerUI(QWidget):
             },
             text=text,
         )
-
         self.body_layer.editable = True
-        # (T, 1, 3) => (T, 4, 3)
-        # [4, 3] => [1, 4, 3]
-
         self.nose_layer = self._viewer.add_points(
-            data=[skel[0] for skel in self.centerlines],
-            ndim=3,
+            data=list(self.centerlines[:, 0]),
+            ndim=4,
             name="nose",
-            face_color=face_color,
-            border_color=nose_color,
+            face_color="transparent",
+            border_color=self.apparent.nose_color.color() or "red",
             size=nose_sz,
             border_width=nose_sz_width,
         )
+
         self.nose_layer.editable = False
         # memory whether current centerline was flip or not
         self.is_flip = np.repeat(0, T).astype("u1")
-        self._viewer.dims.set_current_step(0, z_idx)
+        self._viewer.dims.set_current_step(0, t_idx)
         self._viewer.camera.zoom = zoom
         if center is not None:
             self._viewer.camera.center = center
@@ -797,15 +783,32 @@ class WormTracerUI(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             caption="Select an Image File",
-            filter="Image Files (*.png *.tif *.tiff *.jpg *.avi *.mp4);;All Files (*.*)",
+            filter="Image Files (*.tif *.tiff);;All Files (*.*)",
         )
         if not file_path:
             return
+        self.images = tifffile.imread(file_path)
+        assert self.images.ndim in (
+            2,
+            3,
+        ), "Supporting formats (YX, TYX)"
+        if self.images.ndim == 2:
+            self.images = self.images[None, None, :, :]
+        else:
+            self.images = self.images[:, None, :, :]
 
-        im_layer = self._viewer.open(file_path, stack=True)
-        current_index = self._viewer.layers.index(im_layer[0])
+        im_layer = self._viewer.add_image(
+            self.images,
+            name="image",
+        )
+
+        current_index = self._viewer.layers.index(im_layer)
         # Move the image to the button
         self._viewer.layers.move(current_index, 0)
+
+    @property
+    def t_idx(self) -> int:
+        return self._viewer.dims.current_step[0]
 
     def _register(self):
         if self.centerlines is None:
@@ -814,30 +817,33 @@ class WormTracerUI(QWidget):
         assert self.body_layer is not None, ""
         assert self.nose_layer is not None, ""
         assert self.state is not None, ""
-
-        z_idx = self._viewer.dims.current_step[0]
-
+        t_idx = self.t_idx
         data = self.body_layer.data
         # Get all shapes associated to current indices
         current_data = [
             (i, d)
             for (i, d) in enumerate(data)
-            if d[0, 0] == z_idx and d.shape[0] > 1
+            if int(d[0, 0]) == t_idx
+            and d.shape[0] > 1
+            and np.any(np.isfinite(d))
         ]
+        if len(current_data) > 1:
+            # If previous shape exists, drop the previous shape
+            current_data = [
+                (i, d) for (i, d) in current_data if i != int(t_idx)
+            ]
 
         if not current_data:
             return
 
-        if len(current_data) > 1:
-            # If previous shape exists, drop the previous shape
-            current_data = [(i, d) for (i, d) in current_data if i != z_idx]
-
         _, new_shape = min(current_data, key=lambda x: x[0])
+        valid_mask = np.all(np.isfinite(new_shape), axis=1)
+        new_shape = new_shape[valid_mask]
         n_pts = new_shape.shape[0]
         arc_length = np.zeros(n_pts)
 
         square_diff = (new_shape[1:] - new_shape[:-1]) ** 2
-        arc_length[1:] = np.sqrt(square_diff.sum(axis=1))
+        arc_length[1:] = np.sqrt(square_diff[:, -2] + square_diff[:, -1])
         arc_length = np.cumsum(arc_length)
         # normalized to [0.0, 1.0]
         arc_length /= arc_length.max()
@@ -847,17 +853,17 @@ class WormTracerUI(QWidget):
         )
         plot_n = self.centerlines.shape[1]
         interpolated_data = cs(np.linspace(0, 1.0, plot_n))
-        interpolated_data[:, 0] = z_idx
-
+        interpolated_data[:, 0] = t_idx
+        interpolated_data[:, 1] = 0
         # Memory the previous centerline for undo.
         self.history.append(
-            (get_barcode(), z_idx, self.centerlines[z_idx].copy())
+            (get_barcode(), t_idx, self.centerlines[t_idx].copy())
         )
         # Assign the interpolated data to centerline
-        self.centerlines[z_idx] = interpolated_data
+        self.centerlines[t_idx] = interpolated_data
         # reset flip
-        self.is_flip[z_idx] = 0
-        self.state[z_idx] += 1
+        self.is_flip[t_idx] = 0
+        self.state[t_idx] += 1
         # Update the centerline using reset_centerline
         self._reset_centerline()
 
@@ -866,12 +872,11 @@ class WormTracerUI(QWidget):
             return
         assert self.is_flip is not None, ""
         assert self.state is not None, ""
-
-        z_idx = self._viewer.dims.current_step[0]
+        t_idx = self.t_idx
         # Make sure the append type is (int, int)
-        self.history.append((get_barcode(), z_idx, int(self.is_flip[z_idx])))
-        self.is_flip[z_idx] = self.is_flip[z_idx] ^ 1
-        self.state[z_idx] += 1
+        self.history.append((get_barcode(), t_idx, int(self.is_flip[t_idx])))
+        self.is_flip[t_idx] = self.is_flip[t_idx] ^ 1
+        self.state[t_idx] += 1
         self._reset_centerline()
 
     def _reset_centerline(self):
@@ -881,22 +886,35 @@ class WormTracerUI(QWidget):
         assert self.body_layer is not None, ""
         assert self.nose_layer is not None, ""
         assert self.state is not None, ""
-
-        centerlines = self.centerlines.copy()
-        mask = self.is_flip != 0
-        centerlines[mask] = centerlines[mask, ::-1, :]
-
+        t_idx = self.t_idx
+        # [T, 100, 4] => [100, 4]
+        T = self.centerlines.shape[0]
+        centerlines = self.centerlines[t_idx].copy()
+        if self.is_flip[t_idx] != 0:
+            centerlines = centerlines[::-1, :]
         # we have to assign the data to update the drawing
-        self.body_layer.data = centerlines
-        features = self.body_layer.features
-        features["state"] = self.state
-        features["state_label"] = np.array(["Raw", "Guide"])[
-            (self.state > 0).astype(int)
-        ]
-        self.body_layer.features = features
+        state = self.state[t_idx]
+        self.body_layer.features.loc[t_idx, "state"] = int(state)
+        self.body_layer.features.loc[t_idx, "state_label"] = "Raw"
+        if state > 0:
+            self.body_layer.features.loc[t_idx, "state_label"] = "Guide"
+
+        self.nose_layer.data = self.nose_layer.data[:T]
+        self.nose_layer.data[t_idx] = centerlines[0, :]
+        self.nose_layer.border_color = self.apparent.nose_color.color()
+        self.nose_layer.face_color = "transparent"
+        self.nose_layer.refresh_colors()
+        self.nose_layer.refresh(force=True)
+
+        # we have to assign the data to trigger the drawing
+        tmp = self.body_layer.data[:T]
+        tmp[t_idx] = centerlines
+        self.body_layer.data = tmp
+
+        self.body_layer.edge_color = self.apparent.label_color.color()
+        self.body_layer.refresh_colors()
         self.body_layer.refresh_text()
-        # we have to assign the data to update the drawing
-        self.nose_layer.data = centerlines[:, 0, :]
+        self.body_layer.refresh(force=True)
 
     def _undo(self):
         if self.centerlines is None:
@@ -904,19 +922,19 @@ class WormTracerUI(QWidget):
         assert self.is_flip is not None, ""
         assert self.state is not None, ""
         try:
-            _, z_idx, prev_skel = self.history.pop()
-            z_idx = int(z_idx)
-            self._viewer.dims.set_current_step(0, z_idx)
+            _, t_idx, prev_skel = self.history.pop()
+            t_idx = int(t_idx)
+            self._viewer.dims.set_current_step(0, t_idx)
             if isinstance(prev_skel, int):
                 # If previous step is flip, we just revert the flip.
-                self.is_flip[z_idx] = prev_skel
-                self.state[z_idx] -= 1
+                self.is_flip[t_idx] = prev_skel
+                self.state[t_idx] -= 1
             elif isinstance(prev_skel, tuple):
                 start, end = prev_skel
                 self.state[start : end + 1] -= 1
             elif isinstance(prev_skel, np.ndarray):
-                self.centerlines[z_idx] = prev_skel
-                self.state[z_idx] -= 1
+                self.centerlines[t_idx] = prev_skel
+                self.state[t_idx] -= 1
 
         except IndexError:
             # Pop item from empty history list will raise IndexError.
